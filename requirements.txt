@@ -1,0 +1,5 @@
+streamlit
+alpaca-py
+pandas
+numpy
+pytz
