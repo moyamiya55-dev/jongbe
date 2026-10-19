@@ -44,12 +44,12 @@ def load_cases():
 
 
 @st.cache_data(ttl=86400)
-def get_assets():
-    assets = TradingClient(KEY, SECRET, paper=True).get_all_assets(
-        GetAssetsRequest(asset_class=AssetClass.US_EQUITY))
-    return {a.symbol: a.exchange.value for a in assets
-            if a.tradable and a.exchange.value in EXMAP
-            and "." not in a.symbol and "/" not in a.symbol}
+   def get_assets():
+       assets = TradingClient(KEY, SECRET, paper=True).get_all_assets(
+           GetAssetsRequest(asset_class=AssetClass.US_EQUITY))
+       return {a.symbol: a.exchange.value for a in assets
+               if a.tradable and a.exchange.value in EXMAP
+               and "." not in a.symbol and "/" not in a.symbol}
 
 
 def fetch(symbols, tf, start, end, bar=None, label=""):
