@@ -316,6 +316,7 @@ def kr_minute_check(symbols):
     d = now.date()
     start = NY.localize(datetime(d.year, d.month, d.day, 9, 30))
     end = min(now - timedelta(minutes=16), NY.localize(datetime(d.year, d.month, d.day, 15, 59)))
+    symbols = list(symbols)
     if not symbols or end <= start:
         return {}, ""
     mb = fetch(list(symbols), TimeFrame.Minute, start, end)
