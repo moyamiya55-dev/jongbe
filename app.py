@@ -44,7 +44,7 @@ def load_cases():
 
 
 @st.cache_data(ttl=86400)
-     def get_assets():
+def get_assets():
        r = requests.get(
            "https://paper-api.alpaca.markets/v2/assets",
            headers={"APCA-API-KEY-ID": KEY, "APCA-API-SECRET-KEY": SECRET},
