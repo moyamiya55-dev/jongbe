@@ -45,11 +45,17 @@ def load_cases():
 
 @st.cache_data(ttl=86400)
 def get_assets():
-    assets = TradingClient(KEY, SECRET, paper=True).get_all_assets(
-        GetAssetsRequest(asset_class=AssetClass.US_EQUITY))
-    return {a.symbol: a.exchange.value for a in assets
-            if a.tradable and a.exchange.value in EXMAP
-            and "." not in a.symbol and "/" not in a.symbol}
+    # 알파카 라이브러리 형식 검사를 거치지 않고 원본 목록을 직접 받음
+    r = requests.get("https://paper-api.alpaca.markets/v2/assets", timeout=30,
+                     headers={"APCA-API-KEY-ID": KEY, "APCA-API-SECRET-KEY": SECRET},
+                     params={"asset_class": "us_equity", "status": "active"})
+    r.raise_for_status()
+    out = {}
+    for a in r.json():
+        sym, ex = str(a.get("symbol", "")), str(a.get("exchange", ""))
+        if a.get("tradable") and ex in EXMAP and sym and "." not in sym and "/" not in sym:
+            out[sym] = ex
+    return out
 
 
 def fetch(symbols, tf, start, end, bar=None, label=""):
