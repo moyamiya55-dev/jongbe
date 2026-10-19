@@ -340,6 +340,49 @@ def kr_minute_check(symbols):
     return out, asof
 
 
+def kr_history(n_days):
+    """최근 n_days 거래일 동안 5개 규칙에 걸렸을 종목 + 다음날 결과 (일봉 기준 재계산)"""
+    syms = list(get_assets().keys())
+    now = datetime.now(NY)
+    bar = st.progress(0.0, text="과거 일봉 받는 중")
+    dd = fetch(syms, TimeFrame.Day, now - timedelta(days=int(n_days * 1.5) + 110),
+               now - timedelta(minutes=16), bar, "과거 일봉 받는 중")
+    bar.empty()
+    if dd.empty:
+        return pd.DataFrame()
+    dd["date"] = pd.to_datetime(dd["timestamp"], utc=True).dt.tz_convert("America/New_York").dt.date
+    dd = dd[dd["date"] < now.date()].sort_values(["symbol", "date"]).reset_index(drop=True)
+    g = dd.groupby("symbol")
+    dd["n"] = g.cumcount()
+    dd["pv"] = g["volume"].shift(1)
+    dd["avg20"] = dd.groupby("symbol")["pv"].rolling(20).mean().reset_index(level=0, drop=True)
+    dd["ma5"] = g["close"].rolling(5).mean().reset_index(level=0, drop=True)
+    for c in ("open", "high", "close"):
+        dd["다음" + c] = g[c].shift(-1)
+    days = sorted(dd["date"].unique())[-n_days:]
+    rng = (dd["high"] - dd["low"]).replace(0, np.nan)
+    m = (dd["date"].isin(days) & (dd["n"] >= 25) & (dd["close"] >= KR["min_price"])
+         & (dd["close"] * dd["volume"] >= KR["min_dollar"])
+         & (dd["volume"] >= KR["vol_x"] * dd["avg20"]) & (dd["close"] > dd["open"])
+         & ((dd["high"] - dd["close"]) / rng <= KR["wick"]) & (dd["close"] >= dd["ma5"]))
+    rows = []
+    for i in dd.index[m]:
+        n, sym = int(dd.at[i, "n"]), dd.at[i, "symbol"]
+        h60 = dd.loc[i - min(n, 60):i - 1]
+        pk = int(np.argmax(h60["high"].values))
+        hi = h60["high"].iloc[pk]
+        adj = len(h60) - pk
+        c = dd.at[i, "close"]
+        if c / hi - 1 < KR["near_hi"] or not (KR["adj_min"] <= adj <= KR["adj_max"]):
+            continue
+        rows.append({"날짜": dd.at[i, "date"], "종목": sym, "매수가": c,
+                     "거래량배수": dd.at[i, "volume"] / dd.at[i, "avg20"],
+                     "다음날시가": dd.at[i, "다음open"] / c - 1,
+                     "다음날고가": dd.at[i, "다음high"] / c - 1,
+                     "다음날종가": dd.at[i, "다음close"] / c - 1})
+    return pd.DataFrame(rows)
+
+
 # ---------------- 화면 ----------------
 st.title("🌙 미국 종베")
 tab1, tab2 = st.tabs(["🌙 투매 종베", "📈 국장식 종베"])
@@ -511,6 +554,38 @@ with tab2:
                     show["당일등락"] = show["당일등락"].map(pct)
                     show["고점대비"] = show["고점대비"].map(pct)
                     st.dataframe(show.round(2), use_container_width=True)
+
+    st.divider()
+    st.subheader("📊 성적표")
+    st.caption("과거에 이 탭이 잡았을 종목을 일봉으로 다시 계산해서 다음날 결과를 보여줘요. "
+               "재료·1분봉 조건은 빠져 있고, 매수가는 그날 종가예요.")
+    hc1, hc2 = st.columns([2, 1])
+    period = hc1.radio("기간", [20, 60, 120], horizontal=True, format_func=lambda x: f"최근 {x}거래일",
+                       key="kr_period", label_visibility="collapsed")
+    hkey = f"krh_{today_key}_{period}"
+    if hc2.button("📊 성적 보기", use_container_width=True, key="kr_hist"):
+        with st.spinner("계산 중..."):
+            store()[hkey] = kr_history(period)
+    hist = store().get(hkey)
+    if hist is not None:
+        done = hist.dropna(subset=["다음날시가"]) if len(hist) else hist
+        if not len(done):
+            st.info("이 기간엔 걸린 종목이 없어요.")
+        else:
+            a, b, c, d = st.columns(4)
+            a.metric("검출", f"{len(done)}건")
+            b.metric("다음날 시가 상승", pct((done["다음날시가"] > 0).mean()),
+                     f"평균 {done['다음날시가'].mean() * 100:+.1f}%")
+            c.metric("고가 +5% 도달", pct((done["다음날고가"] >= 0.05).mean()))
+            d.metric("고가 +10% 도달", pct((done["다음날고가"] >= 0.10).mean()))
+            st.caption(f"시가에 팔았을 때 중앙값 {done['다음날시가'].median() * 100:+.1f}% · "
+                       f"종가까지 들고 있었으면 평균 {done['다음날종가'].mean() * 100:+.1f}% (수수료 전)")
+            show = hist.sort_values("날짜", ascending=False).copy()
+            for col in ("다음날시가", "다음날고가", "다음날종가"):
+                show[col] = show[col].map(lambda x: f"{x * 100:+.1f}%" if pd.notna(x) else "대기")
+            show["거래량배수"] = show["거래량배수"].round(1)
+            show["매수가"] = show["매수가"].round(2)
+            st.dataframe(show, hide_index=True, use_container_width=True)
 
     with st.expander("규칙"):
         st.markdown(
