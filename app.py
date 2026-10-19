@@ -241,7 +241,8 @@ CSS = """<style>
 
 # ---------------- 국장식 종베 (신정재 규칙) ----------------
 KR = dict(vol_x=3.0, min_dollar=5_000_000, near_hi=-0.10, wick=0.25,
-          adj_min=5, adj_max=30, min_price=1.0, max_cards=15)
+          adj_min=5, adj_max=30, min_price=1.0, max_cards=15, min_up=0.05)
+N_RULES = 6
 
 
 def kst_of(hh, mm):
@@ -250,7 +251,7 @@ def kst_of(hh, mm):
 
 
 def kr_scan():
-    """일봉 + 오늘 15분봉으로 5개 규칙 판정"""
+    """일봉 + 오늘 15분봉으로 6개 규칙 판정"""
     syms = list(get_assets().keys())
     now = datetime.now(NY)
     today = now.date()
@@ -298,6 +299,7 @@ def kr_scan():
             "깔끔양봉": bool(green and wick <= KR["wick"]),
             "기간조정": KR["adj_min"] <= adj_days <= KR["adj_max"],
             "5일선": t["close"] >= ma5,
+            "상승률": t["close"] / h["close"].iloc[-1] - 1 >= KR["min_up"],
         }
         rows.append({"종목": sym, "현재가": t["close"],
                      "당일등락": t["close"] / h["close"].iloc[-1] - 1,
@@ -341,7 +343,7 @@ def kr_minute_check(symbols):
 
 
 def kr_history(n_days):
-    """최근 n_days 거래일 동안 5개 규칙에 걸렸을 종목 + 다음날 결과 (일봉 기준 재계산)"""
+    """최근 n_days 거래일 동안 6개 규칙에 걸렸을 종목 + 다음날 결과 (일봉 기준 재계산)"""
     syms = list(get_assets().keys())
     now = datetime.now(NY)
     bar = st.progress(0.0, text="과거 일봉 받는 중")
@@ -355,6 +357,7 @@ def kr_history(n_days):
     g = dd.groupby("symbol")
     dd["n"] = g.cumcount()
     dd["pv"] = g["volume"].shift(1)
+    dd["pc"] = g["close"].shift(1)
     dd["avg20"] = dd.groupby("symbol")["pv"].rolling(20).mean().reset_index(level=0, drop=True)
     dd["ma5"] = g["close"].rolling(5).mean().reset_index(level=0, drop=True)
     for c in ("open", "high", "close"):
@@ -364,7 +367,7 @@ def kr_history(n_days):
     m = (dd["date"].isin(days) & (dd["n"] >= 25) & (dd["close"] >= KR["min_price"])
          & (dd["close"] * dd["volume"] >= KR["min_dollar"])
          & (dd["volume"] >= KR["vol_x"] * dd["avg20"]) & (dd["close"] > dd["open"])
-         & ((dd["high"] - dd["close"]) / rng <= KR["wick"]) & (dd["close"] >= dd["ma5"]))
+         & ((dd["high"] - dd["close"]) / rng <= KR["wick"]) & (dd["close"] >= dd["ma5"]) & (dd["close"] >= dd["pc"] * (1 + KR["min_up"])))
     rows = []
     for i in dd.index[m]:
         n, sym = int(dd.at[i, "n"]), dd.at[i, "symbol"]
@@ -507,15 +510,15 @@ with tab2:
             kres, kasof = kr_scan()
         mins, masof = ({}, "")
         if kres is not None and len(kres):
-            mins, masof = kr_minute_check(kres[kres["통과수"] == 5].head(KR["max_cards"]).index)
+            mins, masof = kr_minute_check(kres[kres["통과수"] == N_RULES].head(KR["max_cards"]).index)
         store()[kr_key] = (kres, kasof, mins, masof)
     if kr_key in store():
         kres, kasof, mins, masof = store()[kr_key]
         if kres is None:
             st.warning("오늘 장 데이터가 없어요 (휴장일이거나 개장 전).")
         else:
-            full = kres[kres["통과수"] == 5].head(KR["max_cards"])
-            st.subheader(f"5개 규칙 전부 통과 {len(full)}개 · 데이터 기준 {kasof} KST")
+            full = kres[kres["통과수"] == N_RULES].head(KR["max_cards"])
+            st.subheader(f"{N_RULES}개 규칙 전부 통과 {len(full)}개 · 데이터 기준 {kasof} KST")
             if len(full) and st.button("⏱ 1분봉 다시 확인", use_container_width=True, key="kr_min"):
                 with st.spinner("1분봉 확인 중..."):
                     mins, masof = kr_minute_check(full.index)
@@ -547,7 +550,7 @@ with tab2:
                 st.info("매수 후보 없음 — 재료 확인 + 1분봉 ✅ 둘 다 된 종목만 여기 떠요.")
             st.caption("👉 들어가기 전에 본좌로 희석(ATM·워런트·공모) 확인 · 보통 3~4종목, 빚투 금지")
 
-            near = kres[kres["통과수"] == 4]
+            near = kres[kres["통과수"] == N_RULES - 1]
             if len(near):
                 with st.expander(f"1개 부족 {len(near)}개"):
                     show = near[["현재가", "당일등락", "거래량배수", "고점대비", "조정일수", "탈락"]].copy()
@@ -595,6 +598,7 @@ with tab2:
             "3. 깔끔한 양봉: 양봉 + 위꼬리가 캔들 길이의 25% 이하\n"
             "4. 기간 조정: 60일 고점이 5~30거래일 전\n"
             "5. 5일선 위\n"
+            "6. 당일 상승률 +5% 이상 (스팩·ETF·대형주 거르기)\n"
             "- 저점 높임(최근 5일 저점 > 그 전 5일 저점)은 선호 표시만\n\n"
             "**매수**: 1분봉에서 당일 저점 안 깨고 20선 위 우상향 확인 후, 장중 미리 사지 말 것. "
             "판단 안 서면 애프터에서 오르는지 보고 결정. 재료 이유 모르면 패스\n\n"
