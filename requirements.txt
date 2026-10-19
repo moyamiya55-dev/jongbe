@@ -1,5 +1,5 @@
 streamlit
-alpaca-py
+alpaca-py>=0.40.0
 pandas
 numpy
 pytz
