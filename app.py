@@ -44,13 +44,17 @@ def load_cases():
 
 
 @st.cache_data(ttl=86400)
-   def get_assets():
-       assets = TradingClient(KEY, SECRET, paper=True).get_all_assets(
-           GetAssetsRequest(asset_class=AssetClass.US_EQUITY))
-       return {a.symbol: a.exchange.value for a in assets
-               if a.tradable and a.exchange.value in EXMAP
-               and "." not in a.symbol and "/" not in a.symbol}
-
+     def get_assets():
+       r = requests.get(
+           "https://paper-api.alpaca.markets/v2/assets",
+           headers={"APCA-API-KEY-ID": KEY, "APCA-API-SECRET-KEY": SECRET},
+           params={"status": "active", "asset_class": "us_equity"},
+           timeout=30,
+       )
+       r.raise_for_status()
+       return {a["symbol"]: a["exchange"] for a in r.json()
+               if a.get("tradable") and a.get("exchange") in EXMAP
+               and "." not in a["symbol"] and "/" not in a["symbol"]}
 
 def fetch(symbols, tf, start, end, bar=None, label=""):
     out, n = [], len(symbols)
