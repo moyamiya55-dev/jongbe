@@ -431,13 +431,15 @@ def kr_swing_table(d):
     rows = []
     for name, col in [("1일 뒤 종가", "다음날종가"), ("3일 뒤 종가", "3일종가"), ("5일 뒤 종가", "5일종가"),
                       ("5일선 종가 이탈 시 청산 (최대 10일)", "5일선청산")]:
+        if col not in d.columns:
+            continue
         r = d[col].dropna()
         if not len(r):
             continue
         hold = f"{d.loc[r.index, '청산일수'].mean():.1f}일" if col == "5일선청산" else "-"
         rows.append({"방식": name, "건수": len(r), "평균": f"{r.mean() * 100:+.2f}%",
                      "중앙값": f"{r.median() * 100:+.1f}%", "이긴 비율": pct((r > 0).mean()),
-                     "최악": f"{r.min() * 100:+.1f}%", "평균 보유": hold})
+                     "최악": f"{r.min() * 100:+.1f}%", "최고": f"{r.max() * 100:+.1f}%", "평균 보유": hold})
     return pd.DataFrame(rows)
 
 
@@ -657,7 +659,7 @@ with tab2:
     hc1, hc2 = st.columns([2, 1])
     period = hc1.radio("기간", [20, 60, 120], horizontal=True, format_func=lambda x: f"최근 {x}거래일",
                        key="kr_period", label_visibility="collapsed")
-    hkey = f"krh_{today_key}_{period}_{KR['min_price']}_{up_pct}"
+    hkey = f"krh2_{today_key}_{period}_{KR['min_price']}_{up_pct}"
     if hc2.button("📊 성적 보기", use_container_width=True, key="kr_hist"):
         with st.spinner("계산 중..."):
             store()[hkey] = kr_history(period)
