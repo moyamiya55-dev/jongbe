@@ -305,7 +305,7 @@ def kr_scan():
                      "당일등락": t["close"] / h["close"].iloc[-1] - 1,
                      "거래량배수": vol_x, "고점대비": gap_hi, "위꼬리": wick,
                      "조정일수": adj_days, "저점높임": higher_low,
-                     "통과수": sum(ok.values()), "탈락": ", ".join(k for k, v in ok.items() if not v)})
+                     "저가": t["low"], "통과수": sum(ok.values()), "탈락": ", ".join(k for k, v in ok.items() if not v)})
     if not rows:
         return pd.DataFrame(), asof
     res = pd.DataFrame(rows).set_index("종목")
@@ -549,10 +549,14 @@ with tab1:
 with tab2:
     st.caption(f"오늘 기준(한국시간) 관찰 {kst_of(15, 40)}~ · 매수 {kst_of(15, 55)}~{kst_of(15, 58)} · "
                "데이터가 15분 늦어서 조회는 관찰 시작 전에, 1분봉 재확인은 매수 직전에")
-    low_px = st.toggle("$1~5 포함 (도달률 높지만 못 닿으면 -9% 수준 · 고위험)", key="kr_lowpx")
+    cc1, cc2 = st.columns([1, 1])
+    low_px = cc1.toggle("$1~5 포함", value=True, key="kr_lowpx")
+    up_pct = cc2.radio("당일 상승 하한", [5, 10, 15, 20], horizontal=True, key="kr_up",
+                       format_func=lambda x: f"+{x}%")
+    KR["min_up"] = up_pct / 100
     if low_px:
         KR["min_price"] = 1.0
-    kr_key = f"kr_{today_key}_{KR['min_price']}"
+    kr_key = f"kr_{today_key}_{KR['min_price']}_{up_pct}"
 
     if st.button("🔍 국장식 후보 조회 (2~4분)", type="primary", use_container_width=True, key="kr_btn"):
         with st.spinner("데이터 받는 중..."):
@@ -585,6 +589,9 @@ with tab2:
                     st.caption(f"거래량 {r['거래량배수']:.1f}배 · 전고점 대비 {pct(r['고점대비'])} · "
                                f"위꼬리 {r['위꼬리'] * 100:.0f}% · 조정 {r['조정일수']}일 · "
                                f"저점높임 {'✅' if r['저점높임'] else '–'}")
+                    stop = r["저가"]
+                    st.markdown(f"🎯 목표가 **${r['현재가'] * 1.05:.4f}** (+5%) · "
+                                f"🛑 손절가 **${stop:.4f}** (오늘 저가, {pct(stop / r['현재가'] - 1)})")
                     st.markdown(f"1분봉: {mres}")
                     c1, c2 = st.columns(2)
                     c1.markdown(f"[📰 뉴스 보기](https://finviz.com/quote.ashx?t={sym})")
@@ -614,7 +621,7 @@ with tab2:
     hc1, hc2 = st.columns([2, 1])
     period = hc1.radio("기간", [20, 60, 120], horizontal=True, format_func=lambda x: f"최근 {x}거래일",
                        key="kr_period", label_visibility="collapsed")
-    hkey = f"krh_{today_key}_{period}_{KR['min_price']}"
+    hkey = f"krh_{today_key}_{period}_{KR['min_price']}_{up_pct}"
     if hc2.button("📊 성적 보기", use_container_width=True, key="kr_hist"):
         with st.spinner("계산 중..."):
             store()[hkey] = kr_history(period)
@@ -656,9 +663,10 @@ with tab2:
             "3. 깔끔한 양봉: 양봉 + 위꼬리가 캔들 길이의 25% 이하\n"
             "4. 기간 조정: 60일 고점이 5~30거래일 전\n"
             "5. 5일선 위\n"
-            "6. 당일 상승률 +5% 이상 (스팩·ETF·대형주 거르기)\n"
+            "6. 당일 상승률이 위에서 고른 하한 이상 (스팩·ETF·대형주 거르기)\n"
             "- 저점 높임(최근 5일 저점 > 그 전 5일 저점)은 선호 표시만\n\n"
             "**매수**: 1분봉에서 당일 저점 안 깨고 20선 위 우상향 확인 후, 장중 미리 사지 말 것. "
             "판단 안 서면 애프터에서 오르는지 보고 결정. 재료 이유 모르면 패스\n\n"
-            "**매도**: 다음날 갭 10% 이상이면 1/3 먼저, 개장 5분(9:35 ET) 안에 전량. "
-            "저점 깨면 바로 손절, 물타기 금지")
+            "**매도 (성적표 ③번)**: 매수 직후 목표가(+5%) 지정가 매도 걸기. "
+            "다음날 시가가 이미 +5% 넘으면 시가에 매도. 손절가(매수일 저가) 깨면 바로 손절, "
+            "둘 다 안 닿으면 다음날 종가 전 정리. 물타기 금지")
