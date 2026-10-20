@@ -551,7 +551,7 @@ with tab2:
                "데이터가 15분 늦어서 조회는 관찰 시작 전에, 1분봉 재확인은 매수 직전에")
     cc1, cc2 = st.columns([1, 1])
     low_px = cc1.toggle("$1~5 포함", value=True, key="kr_lowpx")
-    up_pct = cc2.radio("당일 상승 하한", [5, 10, 15, 20], horizontal=True, key="kr_up",
+    up_pct = cc2.radio("당일 상승 하한", [5, 10, 15, 20], index=3, horizontal=True, key="kr_up",
                        format_func=lambda x: f"+{x}%")
     KR["min_up"] = up_pct / 100
     if low_px:
