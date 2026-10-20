@@ -396,12 +396,15 @@ def kr_exit_table(d, tgt=0.05):
     b = np.where(o >= tgt, o, np.where(hit, tgt, c))
     def ex(stop):
         return np.where(o >= tgt, o, np.where(o <= stop, o, np.where(lo <= stop, stop, np.where(hit, tgt, c))))
+    def ex_opt(stop):
+        return np.where(o >= tgt, o, np.where(lo <= stop, stop, np.where(hit, tgt, c)))
     cc = ex(sl)
     rows = []
     for name, r in [("① 시가 매도", a), ("② +5% 지정가, 못 닿으면 종가", b),
                     ("③ +5% 지정가 + 매수일 저가 이탈 손절", cc),
                     ("④ +5% 지정가 + 매수가 -2% 손절", ex(-0.02)),
                     ("⑤ +5% 지정가 + 매수가 -3% 손절", ex(-0.03)),
+                    ("⑤′ -3% 손절, 갭이어도 -3%에 체결 (낙관)", ex_opt(-0.03)),
                     ("⑥ +5% 지정가 + 매수가 -5% 손절", ex(-0.05))]:
         r = pd.Series(r, dtype=float)
         rows.append({"방식": name, "평균": f"{r.mean() * 100:+.2f}%", "중앙값": f"{r.median() * 100:+.1f}%",
