@@ -241,7 +241,7 @@ CSS = """<style>
 
 # ---------------- 국장식 종베 (신정재 규칙) ----------------
 KR = dict(vol_x=3.0, min_dollar=5_000_000, near_hi=-0.10, wick=0.25,
-          adj_min=5, adj_max=30, min_price=1.0, max_cards=15, min_up=0.05)
+          adj_min=5, adj_max=30, min_price=5.0, max_price=20.0, max_vol_x=30.0, max_cards=15, min_up=0.05)
 N_RULES = 6
 
 
@@ -270,7 +270,7 @@ def kr_scan():
     tb = pd.DataFrame({"open": g["open"].first(), "high": g["high"].max(),
                        "low": g["low"].min(), "close": g["close"].last(),
                        "volume": g["volume"].sum()})
-    tb = tb[(tb["close"] >= KR["min_price"]) & (tb["close"] * tb["volume"] >= KR["min_dollar"])]
+    tb = tb[(tb["close"] >= KR["min_price"]) & (tb["close"] <= KR["max_price"]) & (tb["close"] * tb["volume"] >= KR["min_dollar"])]
     asof = pd.Timestamp(intr["timestamp"].max()).tz_convert(KST).strftime("%m/%d %H:%M")
 
     dd["date"] = pd.to_datetime(dd["timestamp"], utc=True).dt.tz_convert("America/New_York").dt.date
@@ -294,7 +294,7 @@ def kr_scan():
         lows = h["low"].tail(10).values
         higher_low = len(lows) == 10 and lows[5:].min() > lows[:5].min()
         ok = {
-            "거래량": vol_x >= KR["vol_x"],
+            "거래량": KR["vol_x"] <= vol_x < KR["max_vol_x"],
             "전고점근접": gap_hi >= KR["near_hi"],
             "깔끔양봉": bool(green and wick <= KR["wick"]),
             "기간조정": KR["adj_min"] <= adj_days <= KR["adj_max"],
@@ -364,9 +364,9 @@ def kr_history(n_days):
         dd["다음" + c] = g[c].shift(-1)
     days = sorted(dd["date"].unique())[-n_days:]
     rng = (dd["high"] - dd["low"]).replace(0, np.nan)
-    m = (dd["date"].isin(days) & (dd["n"] >= 25) & (dd["close"] >= KR["min_price"])
+    m = (dd["date"].isin(days) & (dd["n"] >= 25) & (dd["close"] >= KR["min_price"]) & (dd["close"] <= KR["max_price"])
          & (dd["close"] * dd["volume"] >= KR["min_dollar"])
-         & (dd["volume"] >= KR["vol_x"] * dd["avg20"]) & (dd["close"] > dd["open"])
+         & (dd["volume"] >= KR["vol_x"] * dd["avg20"]) & (dd["volume"] < KR["max_vol_x"] * dd["avg20"]) & (dd["close"] > dd["open"])
          & ((dd["high"] - dd["close"]) / rng <= KR["wick"]) & (dd["close"] >= dd["ma5"]) & (dd["close"] >= dd["pc"] * (1 + KR["min_up"])))
     rows = []
     for i in dd.index[m]:
@@ -549,7 +549,10 @@ with tab1:
 with tab2:
     st.caption(f"오늘 기준(한국시간) 관찰 {kst_of(15, 40)}~ · 매수 {kst_of(15, 55)}~{kst_of(15, 58)} · "
                "데이터가 15분 늦어서 조회는 관찰 시작 전에, 1분봉 재확인은 매수 직전에")
-    kr_key = "kr_" + today_key
+    low_px = st.toggle("$1~5 포함 (도달률 높지만 못 닿으면 -9% 수준 · 고위험)", key="kr_lowpx")
+    if low_px:
+        KR["min_price"] = 1.0
+    kr_key = f"kr_{today_key}_{KR['min_price']}"
 
     if st.button("🔍 국장식 후보 조회 (2~4분)", type="primary", use_container_width=True, key="kr_btn"):
         with st.spinner("데이터 받는 중..."):
@@ -611,7 +614,7 @@ with tab2:
     hc1, hc2 = st.columns([2, 1])
     period = hc1.radio("기간", [20, 60, 120], horizontal=True, format_func=lambda x: f"최근 {x}거래일",
                        key="kr_period", label_visibility="collapsed")
-    hkey = f"krh_{today_key}_{period}"
+    hkey = f"krh_{today_key}_{period}_{KR['min_price']}"
     if hc2.button("📊 성적 보기", use_container_width=True, key="kr_hist"):
         with st.spinner("계산 중..."):
             store()[hkey] = kr_history(period)
@@ -648,7 +651,7 @@ with tab2:
     with st.expander("규칙"):
         st.markdown(
             "**종목 선정 (전부 통과해야 카드)**\n"
-            "1. 거래량: 오늘 거래량이 20일 평균의 3배 이상 (거래대금 $5M 이상, $1 이상)\n"
+            "1. 거래량: 20일 평균의 3배 이상 30배 미만 (거래대금 $5M 이상, 가격 $5~20 · 토글 켜면 $1~20)\n"
             "2. 전고점 근접: 종가가 60일 고점의 -10% 이내\n"
             "3. 깔끔한 양봉: 양봉 + 위꼬리가 캔들 길이의 25% 이하\n"
             "4. 기간 조정: 60일 고점이 5~30거래일 전\n"
