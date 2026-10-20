@@ -378,6 +378,19 @@ def kr_history(n_days):
         c = dd.at[i, "close"]
         if c / hi - 1 < KR["near_hi"] or not (KR["adj_min"] <= adj <= KR["adj_max"]):
             continue
+        last = len(dd) - 1
+
+        def fwd(k):
+            j = i + k
+            return dd.at[j, "close"] / c - 1 if j <= last and dd.at[j, "symbol"] == sym else np.nan
+        ma_ret, ma_days = np.nan, np.nan
+        for k in range(1, 11):
+            j = i + k
+            if j > last or dd.at[j, "symbol"] != sym:
+                break
+            if dd.at[j, "close"] < dd.at[j, "ma5"] or k == 10:
+                ma_ret, ma_days = dd.at[j, "close"] / c - 1, k
+                break
         rows.append({"날짜": dd.at[i, "date"], "종목": sym, "매수가": c,
                      "거래량배수": dd.at[i, "volume"] / dd.at[i, "avg20"],
                      "다음날시가": dd.at[i, "다음open"] / c - 1,
@@ -385,7 +398,9 @@ def kr_history(n_days):
                      "다음날종가": dd.at[i, "다음close"] / c - 1,
                      "다음날저가": dd.at[i, "다음low"] / c - 1,
                      "손절선": dd.at[i, "low"] / c - 1,
-                     "전일종가": dd.at[i, "pc"]})
+                     "전일종가": dd.at[i, "pc"],
+                     "3일종가": fwd(3), "5일종가": fwd(5),
+                     "5일선청산": ma_ret, "청산일수": ma_days})
     return pd.DataFrame(rows)
 
 
@@ -409,6 +424,20 @@ def kr_exit_table(d, tgt=0.05):
         r = pd.Series(r, dtype=float)
         rows.append({"방식": name, "평균": f"{r.mean() * 100:+.2f}%", "중앙값": f"{r.median() * 100:+.1f}%",
                      "이긴 비율": pct((r > 0).mean()), "최악": f"{r.min() * 100:+.1f}%"})
+    return pd.DataFrame(rows)
+
+
+def kr_swing_table(d):
+    rows = []
+    for name, col in [("1일 뒤 종가", "다음날종가"), ("3일 뒤 종가", "3일종가"), ("5일 뒤 종가", "5일종가"),
+                      ("5일선 종가 이탈 시 청산 (최대 10일)", "5일선청산")]:
+        r = d[col].dropna()
+        if not len(r):
+            continue
+        hold = f"{d.loc[r.index, '청산일수'].mean():.1f}일" if col == "5일선청산" else "-"
+        rows.append({"방식": name, "건수": len(r), "평균": f"{r.mean() * 100:+.2f}%",
+                     "중앙값": f"{r.median() * 100:+.1f}%", "이긴 비율": pct((r > 0).mean()),
+                     "최악": f"{r.min() * 100:+.1f}%", "평균 보유": hold})
     return pd.DataFrame(rows)
 
 
@@ -655,7 +684,11 @@ with tab2:
             st.caption("손절선 = 매수한 날의 저가. 같은 날 +5%와 손절선을 둘 다 찍었으면 손절이 먼저라고 보수적으로 계산")
             st.caption(f"시가에 팔았을 때 중앙값 {done['다음날시가'].median() * 100:+.1f}% · "
                        f"종가까지 들고 있었으면 평균 {done['다음날종가'].mean() * 100:+.1f}% (수수료 전)")
-            show = hist.drop(columns=["다음날저가", "손절선", "전일종가"]).sort_values("날짜", ascending=False)
+            st.markdown("**스윙 보기 (며칠 보유)**")
+            st.dataframe(kr_swing_table(done), hide_index=True, use_container_width=True)
+            st.caption("매수 다음날부터 계산. 5일선 청산 = 종가가 5일선 아래로 마감하면 그날 종가에 매도, "
+                       "10일 안 깨지면 10일째 종가. 아직 기간이 안 지난 최근 종목은 빠져서 건수가 조금 적어요")
+            show = hist.drop(columns=["다음날저가", "손절선", "전일종가", "3일종가", "5일종가", "5일선청산", "청산일수"]).sort_values("날짜", ascending=False)
             for col in ("다음날시가", "다음날고가", "다음날종가"):
                 show[col] = show[col].map(lambda x: f"{x * 100:+.1f}%" if pd.notna(x) else "대기")
             show["거래량배수"] = show["거래량배수"].round(1)
